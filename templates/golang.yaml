@@ -1,0 +1,98 @@
+Job:
+  key: JOB1
+  tasks:
+    - checkout:
+        description: Checkout Repository
+        force-clean-build: true
+    - script:
+        description: Sonarqube scan
+        interpreter: SHELL
+        scripts:
+          - |-
+            #!/bin/bash
+            sudo bash ./sonarscan.sh
+    - script:
+        description: Install Packages from JFrog
+        interpreter: SHELL
+        scripts:
+          - >-
+            #!/bin/bash
+
+            pip install -r requirements.txt -i
+            https://${bamboo.secret_jfrog_username}:${bamboo.secret_jfrog_password}@${bamboo.secret_jfrog_artifactory_url}/artifactory/api/pypi/python-pypi-remote/simple
+    - script:
+        description: Push to Artifactory
+        interpreter: SHELL
+        scripts:
+          - >-
+            #!/bin/bash
+
+            python3 setup.py sdist
+
+            curl -u
+            ${bamboo.secret_jfrog_username}:${bamboo.secret_jfrog_password} -T
+            dist/*
+            https://${bamboo.secret_jfrog_artifactory_url}/artifactory/aws-gcp-fed/
+    - script:
+        description: Create the Sbom report from Xray
+        interpreter: SHELL
+        scripts:
+          - >-
+            #!/bin/bash
+
+            curl -XPOST
+            "https://${bamboo.secret_jfrog_artifactory_url}/xray/api/v1/component/exportDetails"
+            -H "Content-type: application/json" -d '{"violations":true,
+            "include_ignored_violations": true, "license": true, "security":
+            true, "exclude_unknown": true, "spdx": true, "spdx_format": "json",
+            "component_name": "Flask-python-example:1.0.1",
+            "package_type":"PyPI","output_format":"json"}' -u
+            ${bamboo.secret_jfrog_username}:${bamboo.secret_jfrog_password}
+            --output Sbom-Report-Flask-python-example:1.0.1.zip      
+    - script:
+        description: Push the Sbom report to Artifactory
+        interpreter: SHELL
+        scripts:
+          - >-
+            #!/bin/bash
+
+            curl -u
+            ${bamboo.secret_jfrog_username}:${bamboo.secret_jfrog_password} -T
+            Sbom-Report-Flask-python-example:1.0.1.zip
+            https://${bamboo.secret_jfrog_artifactory_url}/artifactory/aws-gcp-fed/
+    - clean:
+        description: Clean All Files
+artifact-subscriptions: []
+branches:
+  create: manually
+  delete: never
+  link-to-jira: true
+dependencies:
+  block-strategy: none
+  enabled-for-branches: true
+  plans: []
+  require-all-stages-passing: false
+labels: []
+notifications: []
+other:
+  concurrent-build-plugin: system-default
+plan:
+  description: Building Python Application
+  key: PY
+  name: python
+  project-key: AP
+repositories:
+  - python-pypi-application:
+      scope: global
+requirements:
+  - aws-ew1: python-application
+stages:
+  - Stage:
+      final: false
+      jobs:
+        - Job
+      manual: false
+triggers:
+  - polling:
+      period: 3
+version: 3
